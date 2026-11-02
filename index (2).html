@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Sri Lakshmi Automation - Production Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Firebase App & Realtime Database SDKs (Compat v9 for simple standalone script) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <style>
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-8px); }
+      40%, 80% { transform: translateX(8px); }
+    }
+    .shake-anim { animation: shake 0.35s ease-in-out; }
+    /* Hide spin buttons */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+      -webkit-appearance: none; margin: 0; 
+    }
+    input[type=number] { -moz-appearance: textfield; }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans select-none antialiased">
+
+  <!-- ==================== PIN LOCK OVERLAY ==================== -->
+  <div id="pinOverlay" class="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-4">
+    <div class="w-full max-w-sm flex flex-col items-center text-center">
+      <div class="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 shadow-lg shadow-emerald-500/10">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+        </svg>
+      </div>
+      <h2 class="text-xl font-bold tracking-tight text-white mb-1">Sri Lakshmi Automation</h2>
+      <p class="text-xs text-slate-400 mb-6">Enter workshop access code</p>
+
+      <!-- PIN Indicator Dots -->
+      <div id="pinDots" class="flex gap-4 mb-8">
+        <div class="w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-200" id="dot0"></div>
+        <div class="w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-200" id="dot1"></div>
+        <div class="w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-200" id="dot2"></div>
+        <div class="w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-200" id="dot3"></div>
+      </div>
+
+      <div id="pinErrorMsg" class="h-5 text-rose-400 text-xs font-medium mb-3"></div>
+
+      <!-- Touch Keypad -->
+      <div class="grid grid-cols-3 gap-3 w-full px-4 mb-5">
+        <button onclick="pressPin('1')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">1</button>
+        <button onclick="pressPin('2')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">2</button>
+        <button onclick="pressPin('3')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">3</button>
+        <button onclick="pressPin('4')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">4</button>
+        <button onclick="pressPin('5')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">5</button>
+        <button onclick="pressPin('6')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">6</button>
+        <button onclick="pressPin('7')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">7</button>
+        <button onclick="pressPin('8')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">8</button>
+        <button onclick="pressPin('9')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">9</button>
+        <button onclick="clearPin()" class="h-14 rounded-2xl bg-slate-900/60 border border-slate-800/60 text-xs font-semibold text-slate-400 active:bg-slate-800 transition uppercase tracking-wider">Clear</button>
+        <button onclick="pressPin('0')" class="h-14 rounded-2xl bg-slate-900 border border-slate-800 text-xl font-semibold text-white active:bg-slate-800 transition">0</button>
+        <button onclick="backspacePin()" class="h-14 rounded-2xl bg-slate-900/60 border border-slate-800/60 flex items-center justify-center text-slate-400 active:bg-slate-800 transition">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414-6.414A2 2 0 0110.828 5H20a2 2 0 012 2v10a2 2 0 01-2 2h-9.172a2 2 0 01-1.414-.586L3 12z"/></svg>
+        </button>
+      </div>
+
+      <!-- Remember device checkbox -->
+      <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+        <input type="checkbox" id="rememberDevice" checked class="w-4 h-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-0">
+        <span>Keep unlocked on this mobile</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- ==================== MAIN APPLICATION WRAPPER ==================== -->
+  <div class="flex-1 flex flex-col md:flex-row min-h-screen">
+
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="w-full md:w-64 bg-slate-900 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col justify-between shrink-0">
+      <div>
+        <!-- Brand Header -->
+        <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h1 class="font-extrabold text-base tracking-wide text-white uppercase flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Sri Lakshmi
+            </h1>
+            <p class="text-[11px] text-slate-400 font-mono tracking-wider">AUTOMATION • 82K PORTAL</p>
+          </div>
+          <button onclick="lockAppNow()" title="Lock App" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          </button>
+        </div>
+
+        <!-- Sync Status Indicator -->
+        <div class="px-4 py-2 bg-slate-950/60 border-b border-slate-800/80 flex items-center justify-between text-xs">
+          <div class="flex items-center gap-1.5" id="syncStatusBadge">
+            <span class="w-2 h-2 rounded-full bg-amber-400" id="syncDot"></span>
+            <span class="text-slate-300 font-medium" id="syncText">Local Only</span>
+          </div>
+          <span class="text-[10px] text-slate-500 font-mono" id="lastSyncTime"></span>
+        </div>
+
+        <!-- Nav Tabs -->
+        <nav class="p-3 space-y-1.5">
+          <button onclick="switchTab('production')" id="tabBtn-production" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+            <span>Production Entry</span>
+          </button>
+
+          <button onclick="switchTab('expenses')" id="tabBtn-expenses" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-slate-400 hover:bg-slate-800/70 hover:text-white">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span>Expenses & Breakeven</span>
+          </button>
+
+          <button onclick="switchTab('settings')" id="tabBtn-settings" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-slate-400 hover:bg-slate-800/70 hover:text-white">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <span>Phone Sync & Setup</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Bottom Pinned Month Selector -->
+      <div class="p-3 border-t border-slate-800 bg-slate-900/50">
+        <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Target Month</label>
+        <input type="month" id="monthPicker" onchange="changeMonth(this.value)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="flex-1 flex flex-col overflow-y-auto custom-scroll">
+
+      <!-- ==================== TAB 1: PRODUCTION ENTRY ==================== -->
+      <section id="view-production" class="p-4 md:p-6 space-y-6">
+        
+        <!-- Live Header KPI Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-sm">
+            <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Target Pieces</span>
+            <div class="text-2xl font-black text-white" id="cardMonthlyTarget">82,000</div>
+            <span class="text-[10px] text-emerald-400 font-mono mt-1 block">₹1,06,600 Gross @ ₹1.30</span>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-sm">
+            <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Total Completed</span>
+            <div class="text-2xl font-black text-emerald-400" id="cardCompleted">0</div>
+            <span class="text-[10px] text-slate-400 font-mono mt-1 block" id="cardCompletionPct">0% done</span>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-sm">
+            <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Balance Remaining</span>
+            <div class="text-2xl font-black text-amber-400" id="cardBalance">82,000</div>
+            <span class="text-[10px] text-slate-400 font-mono mt-1 block" id="cardDaysRemaining">-- active days</span>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-sm">
+            <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Req. Run Rate</span>
+            <div class="text-2xl font-black text-cyan-400" id="cardRequiredRunRate">0</div>
+            <span class="text-[10px] text-slate-400 font-mono mt-1 block">pieces / active day</span>
+          </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="bg-slate-900 p-4 rounded-2xl border border-slate-800">
+          <div class="flex justify-between items-center text-xs mb-2">
+            <span class="text-slate-300 font-medium">Expense Breakeven Progress (₹1,06,500 target)</span>
+            <span class="font-mono text-emerald-400 font-bold" id="expenseRecoveryLabel">₹0 recovered (0%)</span>
+          </div>
+          <div class="w-full bg-slate-950 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
+            <div id="expenseProgressBar" class="bg-gradient-to-r from-emerald-500 to-cyan-400 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Production Table Card -->
+        <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-lg">
+          <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-sm md:text-base font-bold text-white flex items-center gap-2">
+                Daily Production Calendar
+                <span class="text-xs font-normal text-slate-400 hidden sm:inline">(Auto-rebalances deficit/surplus daily)</span>
+              </h2>
+              <p class="text-[11px] text-slate-500">Priority: Dileep up to 1,750 &bull; Balance split Dev & SPR &bull; Final day = 0 buffer</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="exportCSV()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Export CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Table Wrapper -->
+          <div class="overflow-x-auto custom-scroll">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-950 text-slate-400 border-b border-slate-800 font-mono text-[11px] uppercase tracking-wider">
+                  <th class="py-3 px-3">Date</th>
+                  <th class="py-3 px-3">Day Condition</th>
+                  <th class="py-3 px-3 text-right">Plan: Dileep</th>
+                  <th class="py-3 px-3 text-right">Plan: Dev</th>
+                  <th class="py-3 px-3 text-right">Plan: SPR</th>
+                  <th class="py-3 px-3 text-right text-emerald-400 font-bold">Planned Total</th>
+                  <th class="py-3 px-3 text-center bg-slate-900 text-amber-300 font-bold">Actual Produced</th>
+                  <th class="py-3 px-3 text-right">Variance</th>
+                </tr>
+              </thead>
+              <tbody id="productionTableBody" class="divide-y divide-slate-800/60 font-sans">
+                <!-- Dynamically populated rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ==================== TAB 2: EXPENSES & BREAKEVEN ==================== -->
+      <section id="view-expenses" class="p-4 md:p-6 space-y-6 hidden">
+        <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 md:p-6">
+          <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 class="text-lg font-bold text-white">Monthly Expense & Breakeven Structure</h2>
+              <p class="text-xs text-slate-400">Fixed operational breakdown vs pieces needed @ ₹1.30 net unit charge</p>
+            </div>
+            <div class="text-right">
+              <span class="text-xs text-slate-400 block">Total Monthly Budget</span>
+              <span class="text-2xl font-black text-rose-400">₹1,06,500</span>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto custom-scroll">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr class="bg-slate-950 text-slate-400 border-b border-slate-800 font-mono uppercase text-[11px]">
+                  <th class="py-3 px-4">Expense Item</th>
+                  <th class="py-3 px-4">Category</th>
+                  <th class="py-3 px-4 text-right">Amount (₹)</th>
+                  <th class="py-3 px-4 text-right">% of Total</th>
+                  <th class="py-3 px-4 text-right">Units to Cover (@ ₹1.30)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800 font-medium">
+                <tr class="hover:bg-slate-800/40">
+                  <td class="py-3.5 px-4 font-semibold text-white">Dileep Salary (₹16k base + ₹7k OT)</td>
+                  <td class="py-3.5 px-4 text-slate-400">Workshop Labor</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-200">₹23,000</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-400">21.6%</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-cyan-400 font-bold">17,693 units</td>
+                </tr>
+                <tr class="hover:bg-slate-800/40">
+                  <td class="py-3.5 px-4 font-semibold text-white">Machinery / Factory Loan EMI</td>
+                  <td class="py-3.5 px-4 text-slate-400">Financing</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-200">₹21,000</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-400">19.7%</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-cyan-400 font-bold">16,154 units</td>
+                </tr>
+                <tr class="hover:bg-slate-800/40">
+                  <td class="py-3.5 px-4 font-semibold text-white">Electricity Bill (TNEB)</td>
+                  <td class="py-3.5 px-4 text-slate-400">Power Utilities</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-200">₹14,000</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-400">13.1%</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-cyan-400 font-bold">10,769 units</td>
+                </tr>
+                <tr class="hover:bg-slate-800/40">
+                  <td class="py-3.5 px-4 font-semibold text-white">Tools, Cutting Oil, Tea, Water</td>
+                  <td class="py-3.5 px-4 text-slate-400">Shop Consumables</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-200">₹10,000</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-400">9.4%</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-cyan-400 font-bold">7,692 units</td>
+                </tr>
+                <tr class="hover:bg-slate-800/40">
+                  <td class="py-3.5 px-4 font-semibold text-white">Deva Personal Drawing</td>
+                  <td class="py-3.5 px-4 text-slate-400">Partner Drawings</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-200">₹10,000</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-400">9.4%</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-cyan-400 font-bold">7,692 units</td>
+                </tr>
+                <tr class="hover:bg-slate-800/40">
+                  <td class="py-3.5 px-4 font-semibold text-white">House Expenses</td>
+                  <td class="py-3.5 px-4 text-slate-400">Household Living</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-200">₹35,000</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-400">32.9%</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-cyan-400 font-bold">26,924 units</td>
+                </tr>
+                <tr class="bg-slate-950 font-bold text-white border-t-2 border-slate-700">
+                  <td class="py-3.5 px-4 text-emerald-400 uppercase tracking-wider" colspan="2">Total Breakeven Target</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-emerald-400 text-sm">₹1,06,500</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-slate-400">100.0%</td>
+                  <td class="py-3.5 px-4 text-right font-mono text-emerald-400 text-sm">81,924 units</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-6 p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+            <span>By achieving your target of <strong class="text-white">82,000 units</strong>, gross revenue equals <strong class="text-emerald-400">₹1,06,600</strong>, fully covering all workshop costs, loan, salary, and home expenses with a positive balance.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== TAB 3: SETTINGS & CLOUD SYNC ==================== -->
+      <section id="view-settings" class="p-4 md:p-6 space-y-6 hidden">
+        
+        <!-- Firebase Cloud Sync Card -->
+        <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 md:p-6 space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            </div>
+            <div>
+              <h2 class="text-base font-bold text-white">Live Multi-Phone Cloud Sync (Firebase Free Tier)</h2>
+              <p class="text-xs text-slate-400">Paste your Firebase configuration once to mirror updates across Dev's & SPR's phones</p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <label class="block text-xs font-medium text-slate-300">Firebase Config JSON:</label>
+            <textarea id="firebaseConfigInput" rows="5" placeholder='{
+  "apiKey": "AIzaSy...",
+  "databaseURL": "https://your-app-default-rtdb.firebaseio.com",
+  "projectId": "your-app"
+}' class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-200 focus:outline-none focus:border-emerald-500"></textarea>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <button onclick="saveFirebaseConfig()" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-xs font-bold text-slate-950 transition flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Save & Connect Cloud
+            </button>
+            <button onclick="disconnectFirebase()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700 transition">
+              Disconnect Cloud
+            </button>
+          </div>
+        </div>
+
+        <!-- Offline Backup & Restore Card -->
+        <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 md:p-6 space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+            </div>
+            <div>
+              <h2 class="text-base font-bold text-white">Offline Backup & Restore</h2>
+              <p class="text-xs text-slate-400">Save complete local database to a .json file or WhatsApp it to your other phone</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-3">
+            <button onclick="downloadBackup()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-white border border-slate-700 flex items-center gap-2">
+              <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              Download Full Backup (.json)
+            </button>
+
+            <label class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-white border border-slate-700 flex items-center gap-2 cursor-pointer">
+              <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+              Restore from Backup (.json)
+              <input type="file" id="restoreFileInput" accept=".json" onchange="restoreBackup(event)" class="hidden">
+            </label>
+          </div>
+        </div>
+
+        <!-- Security & PIN Management Card -->
+        <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 md:p-6 space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+            </div>
+            <div>
+              <h2 class="text-base font-bold text-white">Workshop Passcode Settings</h2>
+              <p class="text-xs text-slate-400">Default PIN is active and securely hashed with SHA-256</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button onclick="lockAppNow()" class="px-4 py-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 text-xs font-semibold transition">
+              Lock Portal Immediately
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ==================== JAVASCRIPT LOGIC ==================== -->
+  <script>
+    // --- CONSTANTS & STATE ---
+    const TARGET_MONTHLY = 82000;
+    const RATE_PER_UNIT = 1.30;
+    const TOTAL_EXPENSES = 106500;
+    const PIN_SALT = "SLA_2026_SECURE_SALT";
+    // Salted SHA-256 of PIN 9043
+    const DEFAULT_HASH = "e0c745c6fc1a5563933194d9c49bd38becb33cf39794a532d9e9920e57e56a65";
+
+    let currentPinInput = "";
+    let currentMonth = "";
+    let monthData = {
+      days: {} // dayIndex: { condition: 'normal'|'half'|'leave'|'power', actual: null }
+    };
+    let fbApp = null;
+    let fbDb = null;
+    let isRemoteUpdate = false;
+    let debounceTimer = null;
+
+    // --- SHA-256 HELPER USING WEB CRYPTO ---
+    async function sha256Salted(pin) {
+      const msgBuffer = new TextEncoder().encode(pin + PIN_SALT);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // --- PIN LOCK SYSTEM ---
+    function updatePinDots() {
+      for (let i = 0; i < 4; i++) {
+        const dot = document.getElementById(`dot${i}`);
+        if (i < currentPinInput.length) {
+          dot.className = "w-4 h-4 rounded-full bg-emerald-400 border-2 border-emerald-400 scale-110 transition-all duration-200 shadow-md shadow-emerald-400/40";
+        } else {
+          dot.className = "w-4 h-4 rounded-full border-2 border-slate-600 transition-all duration-200";
+        }
+      }
+    }
+
+    async function pressPin(digit) {
+      if (currentPinInput.length >= 4) return;
+      currentPinInput += digit;
+      updatePinDots();
+      document.getElementById('pinErrorMsg').innerText = "";
+
+      if (currentPinInput.length === 4) {
+        const enteredHash = await sha256Salted(currentPinInput);
+        const storedHash = localStorage.getItem('sla_pin_hash') || DEFAULT_HASH;
+
+        if (enteredHash === storedHash) {
+          if (document.getElementById('rememberDevice').checked) {
+            localStorage.setItem('sla_pin_authorized', 'true');
+          }
+          document.getElementById('pinOverlay').classList.add('hidden');
+          currentPinInput = "";
+          updatePinDots();
+        } else {
+          const dotsBox = document.getElementById('pinDots');
+          dotsBox.classList.add('shake-anim');
+          document.getElementById('pinErrorMsg').innerText = "Incorrect PIN. Try again.";
+          setTimeout(() => {
+            dotsBox.classList.remove('shake-anim');
+            clearPin();
+          }, 400);
+        }
+      }
+    }
+
+    function clearPin() {
+      currentPinInput = "";
+      updatePinDots();
+      document.getElementById('pinErrorMsg').innerText = "";
+    }
+
+    function backspacePin() {
+      if (currentPinInput.length > 0) {
+        currentPinInput = currentPinInput.slice(0, -1);
+        updatePinDots();
+        document.getElementById('pinErrorMsg').innerText = "";
+      }
+    }
+
+    function lockAppNow() {
+      localStorage.removeItem('sla_pin_authorized');
+      currentPinInput = "";
+      updatePinDots();
+      document.getElementById('pinErrorMsg').innerText = "";
+      document.getElementById('pinOverlay').classList.remove('hidden');
+    }
+
+    function checkInitialAuth() {
+      if (localStorage.getItem('sla_pin_authorized') === 'true') {
+        document.getElementById('pinOverlay').classList.add('hidden');
+      }
+    }
+
+    // --- TAB SWITCHER ---
+    function switchTab(tab) {
+      ['production', 'expenses', 'settings'].forEach(t => {
+        document.getElementById(`view-${t}`).classList.add('hidden');
+        const btn = document.getElementById(`tabBtn-${t}`);
+        btn.className = "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-slate-400 hover:bg-slate-800/70 hover:text-white";
+      });
+
+      document.getElementById(`view-${tab}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`tabBtn-${tab}`);
+      activeBtn.className = "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
+    }
+
+    // --- DATE & MONTH HELPERS ---
+    function initMonth() {
+      const today = new Date();
+      const yr = today.getFullYear();
+      const mo = String(today.getMonth() + 1).padStart(2, '0');
+      currentMonth = `${yr}-${mo}`;
+      document.getElementById('monthPicker').value = currentMonth;
+      loadMonthData();
+    }
+
+    function changeMonth(newMonth) {
+      if (!newMonth) return;
+      currentMonth = newMonth;
+      loadMonthData();
+      if (fbDb) attachFirebaseListener();
+    }
+
+    function getDaysInMonth(yearMonthStr) {
+      const [year, month] = yearMonthStr.split('-').map(Number);
+      return new Date(year, month, 0).getDate();
+    }
+
+    // --- DATA PERSISTENCE ---
+    function getStorageKey() {
+      return `sla_production_${currentMonth}`;
+    }
+
+    function loadMonthData() {
+      const local = localStorage.getItem(getStorageKey());
+      if (local) {
+        try {
+          monthData = JSON.parse(local);
+        } catch (e) {
+          monthData = { days: {} };
+        }
+      } else {
+        monthData = { days: {} };
+      }
+      renderProductionTable();
+    }
+
+    function saveLocalData() {
+      localStorage.setItem(getStorageKey(), JSON.stringify(monthData));
+      if (fbDb && !isRemoteUpdate) {
+        syncToCloudDebounced();
+      }
+    }
+
+    // --- ALLOCATION ENGINE ---
+    function renderProductionTable() {
+      const totalDays = getDaysInMonth(currentMonth);
+      const [year, month] = currentMonth.split('-').map(Number);
+      const tbody = document.getElementById('productionTableBody');
+      tbody.innerHTML = '';
+
+      let totalCompleted = 0;
+      let recordedActualsCount = 0;
+
+      // 1. Calculate how many parts have already been completed on locked days
+      for (let d = 1; d <= totalDays; d++) {
+        const row = monthData.days[d];
+        if (row && row.actual !== null && row.actual !== undefined && row.actual !== '') {
+          totalCompleted += Number(row.actual);
+          recordedActualsCount++;
+        }
+      }
+
+      const balanceRemaining = Math.max(0, TARGET_MONTHLY - totalCompleted);
+
+      // 2. Count active remaining future days (excluding power cut & the final buffer day)
+      let futureActiveDaysCount = 0;
+      for (let d = 1; d <= totalDays; d++) {
+        const isBufferDay = (d === totalDays);
+        const row = monthData.days[d] || { condition: 'normal', actual: null };
+        const hasActual = (row.actual !== null && row.actual !== undefined && row.actual !== '');
+
+        if (!hasActual && !isBufferDay && row.condition !== 'power') {
+          futureActiveDaysCount++;
+        }
+      }
+
+      // 3. Compute dynamic daily quota for future open days
+      let dynamicDailyNeeded = futureActiveDaysCount > 0 ? Math.ceil(balanceRemaining / futureActiveDaysCount) : 0;
+
+      // Update Top Summary Cards
+      document.getElementById('cardMonthlyTarget').innerText = TARGET_MONTHLY.toLocaleString('en-IN');
+      document.getElementById('cardCompleted').innerText = totalCompleted.toLocaleString('en-IN');
+      const completionPct = ((totalCompleted / TARGET_MONTHLY) * 100).toFixed(1);
+      document.getElementById('cardCompletionPct').innerText = `${completionPct}% completed`;
+      document.getElementById('cardBalance').innerText = balanceRemaining.toLocaleString('en-IN');
+      document.getElementById('cardDaysRemaining').innerText = `${futureActiveDaysCount} active days left`;
+      document.getElementById('cardRequiredRunRate').innerText = dynamicDailyNeeded.toLocaleString('en-IN');
+
+      // Expense Breakeven Recovery Bar
+      const recoveredRevenue = totalCompleted * RATE_PER_UNIT;
+      const expensePct = Math.min(100, ((recoveredRevenue / TOTAL_EXPENSES) * 100)).toFixed(1);
+      document.getElementById('expenseRecoveryLabel').innerText = `₹${Math.round(recoveredRevenue).toLocaleString('en-IN')} recovered (${expensePct}%)`;
+      document.getElementById('expenseProgressBar').style.width = `${expensePct}%`;
+
+      // 4. Render Table Rows
+      for (let d = 1; d <= totalDays; d++) {
+        const dateObj = new Date(year, month - 1, d);
+        const dayOfWeek = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+        const isSunday = (dateObj.getDay() === 0);
+        const isBufferDay = (d === totalDays);
+
+        // Default condition on fresh months
+        if (!monthData.days[d]) {
+          monthData.days[d] = {
+            condition: isSunday ? 'half' : 'normal',
+            actual: null
+          };
+        }
+
+        const dayState = monthData.days[d];
+        const hasActual = (dayState.actual !== null && dayState.actual !== undefined && dayState.actual !== '');
+
+        // Determine operator plan for this row
+        let pDileep = 0;
+        let pDev = 0;
+        let pSPR = 0;
+        let pTotal = 0;
+
+        if (isBufferDay || dayState.condition === 'power') {
+          pDileep = 0; pDev = 0; pSPR = 0; pTotal = 0;
+        } else {
+          pTotal = dynamicDailyNeeded;
+
+          // Priority 1: Dileep base up to 1,750 (cap 900 on half day, 0 on leave)
+          let dileepCap = 1750;
+          if (dayState.condition === 'half') dileepCap = 900;
+          if (dayState.condition === 'leave') dileepCap = 0;
+
+          pDileep = Math.min(dileepCap, pTotal);
+          const remainder = Math.max(0, pTotal - pDileep);
+
+          // Priority 2: Split remaining between Dev (800–2,000) and SPR (100–500)
+          pDev = Math.round(remainder * 0.82);
+          pSPR = remainder - pDev;
+        }
+
+        // Variance
+        let varianceStr = "-";
+        let varianceClass = "text-slate-500";
+        if (hasActual) {
+          const diff = Number(dayState.actual) - pTotal;
+          if (diff > 0) {
+            varianceStr = `+${diff.toLocaleString('en-IN')}`;
+            varianceClass = "text-emerald-400 font-bold";
+          } else if (diff < 0) {
+            varianceStr = `${diff.toLocaleString('en-IN')}`;
+            varianceClass = "text-rose-400 font-bold";
+          } else {
+            varianceStr = "0";
+            varianceClass = "text-slate-400";
+          }
+        }
+
+        const tr = document.createElement('tr');
+        tr.className = `border-b border-slate-800/60 hover:bg-slate-800/30 transition ${isBufferDay ? 'bg-amber-500/5' : ''}`;
+
+        tr.innerHTML = `
+          <td class="py-3 px-3 font-mono">
+            <span class="font-bold text-slate-200">${String(d).padStart(2, '0')}</span>
+            <span class="text-[11px] ml-1 ${isSunday ? 'text-amber-400 font-bold' : 'text-slate-500'}">(${dayOfWeek})</span>
+            ${isBufferDay ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold">BUFFER</span>' : ''}
+          </td>
+          <td class="py-3 px-3">
+            <select onchange="updateCondition(${d}, this.value)" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-emerald-500 ${isBufferDay ? 'opacity-40 pointer-events-none' : ''}">
+              <option value="normal" ${dayState.condition === 'normal' ? 'selected' : ''}>Full Day</option>
+              <option value="half" ${dayState.condition === 'half' ? 'selected' : ''}>Dileep Half (900)</option>
+              <option value="leave" ${dayState.condition === 'leave' ? 'selected' : ''}>Dileep Leave (0)</option>
+              <option value="power" ${dayState.condition === 'power' ? 'selected' : ''}>Power Cut (0)</option>
+            </select>
+          </td>
+          <td class="py-3 px-3 text-right font-mono text-cyan-400">${pDileep.toLocaleString('en-IN')}</td>
+          <td class="py-3 px-3 text-right font-mono text-cyan-400">${pDev.toLocaleString('en-IN')}</td>
+          <td class="py-3 px-3 text-right font-mono text-cyan-400">${pSPR.toLocaleString('en-IN')}</td>
+          <td class="py-3 px-3 text-right font-mono text-emerald-400 font-bold">${pTotal.toLocaleString('en-IN')}</td>
+          <td class="py-2 px-3 text-center bg-slate-950/40">
+            <input 
+              type="number" 
+              inputmode="numeric" 
+              pattern="[0-9]*"
+              id="actualInput_${d}"
+              value="${dayState.actual !== null ? dayState.actual : ''}" 
+              placeholder="--"
+              oninput="onActualChange(${d}, this.value)"
+              class="w-24 px-2 py-1.5 text-center font-mono font-bold text-sm rounded-lg bg-slate-950 border-2 ${hasActual ? 'border-emerald-500/80 text-emerald-300' : 'border-amber-500/70 text-amber-300'} focus:outline-none focus:ring-2 focus:ring-emerald-400 transition shadow-inner"
+            >
+          </td>
+          <td class="py-3 px-3 text-right font-mono ${varianceClass}">
+            ${varianceStr}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function updateCondition(dayIndex, value) {
+      if (!monthData.days[dayIndex]) monthData.days[dayIndex] = { condition: 'normal', actual: null };
+      monthData.days[dayIndex].condition = value;
+      saveLocalData();
+      renderProductionTable();
+    }
+
+    function onActualChange(dayIndex, value) {
+      if (!monthData.days[dayIndex]) monthData.days[dayIndex] = { condition: 'normal', actual: null };
+      const val = value.trim();
+      monthData.days[dayIndex].actual = (val === '' ? null : Number(val));
+      saveLocalData();
+      
+      // Keep focus steady while recalculating
+      const activeElementId = document.activeElement ? document.activeElement.id : null;
+      renderProductionTable();
+      if (activeElementId) {
+        const el = document.getElementById(activeElementId);
+        if (el) {
+          el.focus();
+        }
+      }
+    }
+
+    // --- CSV EXPORT ---
+    function exportCSV() {
+      const totalDays = getDaysInMonth(currentMonth);
+      let csv = "Date,Condition,Plan_Dileep,Plan_Dev,Plan_SPR,Plan_Total,Actual_Produced
+";
+      for (let d = 1; d <= totalDays; d++) {
+        const row = monthData.days[d] || { condition: 'normal', actual: '' };
+        csv += `${currentMonth}-${String(d).padStart(2, '0')},${row.condition},,,${row.actual || ''}
+`;
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SLA_Production_${currentMonth}.csv`;
+      a.click();
+    }
+
+    // --- BACKUP & RESTORE ---
+    function downloadBackup() {
+      const fullStorage = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('sla_')) {
+          fullStorage[key] = localStorage.getItem(key);
+        }
+      }
+      const blob = new Blob([JSON.stringify(fullStorage, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SLA_FullBackup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+    }
+
+    function restoreBackup(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          Object.keys(data).forEach(k => {
+            localStorage.setItem(k, data[k]);
+          });
+          alert("Backup successfully restored!");
+          loadMonthData();
+        } catch (err) {
+          alert("Invalid backup file.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // --- FIREBASE REAL-TIME CLOUD SYNC ---
+    function initFirebaseIfConfigured() {
+      const savedCfg = localStorage.getItem('sla_firebase_config');
+      if (savedCfg) {
+        try {
+          const config = JSON.parse(savedCfg);
+          document.getElementById('firebaseConfigInput').value = JSON.stringify(config, null, 2);
+          if (!firebase.apps.length) {
+            fbApp = firebase.initializeApp(config);
+          } else {
+            fbApp = firebase.app();
+          }
+          fbDb = firebase.database();
+          setSyncBadge(true, "Cloud Connected");
+          attachFirebaseListener();
+        } catch (e) {
+          console.error("Firebase init failed:", e);
+          setSyncBadge(false, "Config Error");
+        }
+      } else {
+        setSyncBadge(false, "Local Only");
+      }
+    }
+
+    function setSyncBadge(connected, text) {
+      const badge = document.getElementById('syncText');
+      const dot = document.getElementById('syncDot');
+      badge.innerText = text;
+      if (connected) {
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+        badge.className = "text-emerald-400 font-semibold";
+      } else {
+        dot.className = "w-2 h-2 rounded-full bg-amber-400";
+        badge.className = "text-slate-400 font-medium";
+      }
+    }
+
+    function saveFirebaseConfig() {
+      const text = document.getElementById('firebaseConfigInput').value.trim();
+      if (!text) {
+        alert("Please paste your Firebase Config JSON");
+        return;
+      }
+      try {
+        const cfg = JSON.parse(text);
+        localStorage.setItem('sla_firebase_config', JSON.stringify(cfg));
+        initFirebaseIfConfigured();
+        alert("Firebase connected successfully! Production counts will now sync in real time.");
+      } catch (e) {
+        alert("Invalid JSON format. Check syntax.");
+      }
+    }
+
+    function disconnectFirebase() {
+      localStorage.removeItem('sla_firebase_config');
+      fbDb = null;
+      document.getElementById('firebaseConfigInput').value = "";
+      setSyncBadge(false, "Local Only");
+      alert("Disconnected from cloud database.");
+    }
+
+    function attachFirebaseListener() {
+      if (!fbDb) return;
+      const pathRef = fbDb.ref(`sla_production/${currentMonth}`);
+      pathRef.on('value', (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+          isRemoteUpdate = true;
+          monthData = val;
+          localStorage.setItem(getStorageKey(), JSON.stringify(monthData));
+          renderProductionTable();
+          document.getElementById('lastSyncTime').innerText = `Synced: ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+          isRemoteUpdate = false;
+        }
+      });
+    }
+
+    function syncToCloudDebounced() {
+      if (!fbDb || isRemoteUpdate) return;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fbDb.ref(`sla_production/${currentMonth}`).set(monthData)
+          .then(() => {
+            document.getElementById('lastSyncTime').innerText = `Saved: ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+          })
+          .catch((err) => console.error("Cloud sync error:", err));
+      }, 300);
+    }
+
+    // --- BOOTSTRAP ---
+    window.addEventListener('DOMContentLoaded', () => {
+      checkInitialAuth();
+      initMonth();
+      initFirebaseIfConfigured();
+    });
+  </script>
+</body>
+</html>
