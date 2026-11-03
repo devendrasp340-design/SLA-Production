@@ -129,7 +129,7 @@
           <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-sm">
             <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Req. Run Rate</span>
             <div class="text-2xl font-black text-cyan-400" id="cardRequiredRunRate">0</div>
-            <span class="text-[10px] text-slate-400 font-mono mt-1 block">pieces / active day</span>
+            <span class="text-[10px] text-slate-400 font-mono mt-1 block">pieces / working day (Sun max 1,000)</span>
           </div>
         </div>
 
@@ -150,7 +150,7 @@
                 Daily Production Calendar
                 <span class="text-xs font-normal text-slate-400 hidden sm:inline">(Auto-rebalances deficit/surplus daily)</span>
               </h2>
-              <p class="text-[11px] text-slate-500">Priority: Dileep up to 1,750 &bull; Balance split Dev & SPR &bull; Final day = 0 buffer</p>
+              <p class="text-[11px] text-slate-500">Dileep up to 1,750 &bull; Sunday: total max 1,000, SPR max 150 &bull; Balance split Dev & SPR &bull; Final day = 0 buffer</p>
             </div>
             <div class="flex items-center gap-2">
               <button onclick="exportCSV()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
@@ -351,6 +351,8 @@
     const TARGET_MONTHLY = 82000;
     const RATE_PER_UNIT = 1.30;
     const TOTAL_EXPENSES = 106500;
+    const SUNDAY_MAX_TOTAL = 1000;   // max pieces planned on any Sunday
+    const SUNDAY_SPR_MAX = 150;      // max SPR pieces on any Sunday
     const PIN_SALT = "SLA_2026_SECURE_SALT";
     // Salted SHA-256 of PIN 9043
     const DEFAULT_HASH = "e0c745c6fc1a5563933194d9c49bd38becb33cf39794a532d9e9920e57e56a65";
@@ -558,39 +560,56 @@
       const tbody = document.getElementById('productionTableBody');
       tbody.innerHTML = '';
 
+      // 1. Total already produced
       let totalCompleted = 0;
-
       for (let d = 1; d <= totalDays; d++) {
         const row = monthData.days[d];
         if (row && row.actual !== null && row.actual !== undefined && row.actual !== '') {
           totalCompleted += Number(row.actual);
         }
       }
-
       const balanceRemaining = Math.max(0, TARGET_MONTHLY - totalCompleted);
 
-      let futureActiveDaysCount = 0;
+      // 2. Count open (future) working days: weekdays vs Sundays
+      let openWeekdays = 0;
+      let openSundays = 0;
       for (let d = 1; d <= totalDays; d++) {
         const isBufferDay = (d === totalDays);
         const row = monthData.days[d] || { condition: 'normal', actual: null };
         const hasActual = (row.actual !== null && row.actual !== undefined && row.actual !== '');
-        if (!hasActual && !isBufferDay && row.condition !== 'power') futureActiveDaysCount++;
+        if (hasActual || isBufferDay || row.condition === 'power') continue;
+        const isSun = (new Date(year, month - 1, d).getDay() === 0);
+        if (isSun) openSundays++; else openWeekdays++;
       }
+      const openTotal = openWeekdays + openSundays;
 
-      const dynamicDailyNeeded = futureActiveDaysCount > 0 ? Math.ceil(balanceRemaining / futureActiveDaysCount) : 0;
+      // 3. Weekday target with Sunday capped at SUNDAY_MAX_TOTAL
+      let weekdayTarget = 0;
+      if (openTotal > 0) {
+        const evenTarget = Math.ceil(balanceRemaining / openTotal);
+        if (evenTarget <= SUNDAY_MAX_TOTAL || openWeekdays === 0) {
+          weekdayTarget = evenTarget;
+        } else {
+          weekdayTarget = Math.ceil((balanceRemaining - SUNDAY_MAX_TOTAL * openSundays) / openWeekdays);
+        }
+      }
+      const sundayTarget = Math.min(SUNDAY_MAX_TOTAL, weekdayTarget);
 
+      // Update Top Summary Cards
       document.getElementById('cardMonthlyTarget').innerText = TARGET_MONTHLY.toLocaleString('en-IN');
       document.getElementById('cardCompleted').innerText = totalCompleted.toLocaleString('en-IN');
       document.getElementById('cardCompletionPct').innerText = ((totalCompleted / TARGET_MONTHLY) * 100).toFixed(1) + '% completed';
       document.getElementById('cardBalance').innerText = balanceRemaining.toLocaleString('en-IN');
-      document.getElementById('cardDaysRemaining').innerText = futureActiveDaysCount + ' active days left';
-      document.getElementById('cardRequiredRunRate').innerText = dynamicDailyNeeded.toLocaleString('en-IN');
+      document.getElementById('cardDaysRemaining').innerText = openTotal + ' active days left';
+      document.getElementById('cardRequiredRunRate').innerText = weekdayTarget.toLocaleString('en-IN');
 
+      // Expense Breakeven Recovery Bar
       const recoveredRevenue = totalCompleted * RATE_PER_UNIT;
       const expensePct = Math.min(100, (recoveredRevenue / TOTAL_EXPENSES) * 100).toFixed(1);
       document.getElementById('expenseRecoveryLabel').innerText = '₹' + Math.round(recoveredRevenue).toLocaleString('en-IN') + ' recovered (' + expensePct + '%)';
       document.getElementById('expenseProgressBar').style.width = expensePct + '%';
 
+      // 4. Render rows
       for (let d = 1; d <= totalDays; d++) {
         const dateObj = new Date(year, month - 1, d);
         const dayOfWeek = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
@@ -607,14 +626,25 @@
         let pDileep = 0, pDev = 0, pSPR = 0, pTotal = 0;
 
         if (!(isBufferDay || dayState.condition === 'power')) {
-          pTotal = dynamicDailyNeeded;
+          pTotal = isSunday ? sundayTarget : weekdayTarget;
+
+          // Dileep first (cap 1750; 900 on half day; 0 on leave)
           let dileepCap = 1750;
           if (dayState.condition === 'half') dileepCap = 900;
           if (dayState.condition === 'leave') dileepCap = 0;
+
           pDileep = Math.min(dileepCap, pTotal);
           const remainder = Math.max(0, pTotal - pDileep);
+
+          // Split remainder between Dev and SPR
           pDev = Math.round(remainder * 0.82);
           pSPR = remainder - pDev;
+
+          // Sunday: SPR is capped at 150, Dev takes the rest
+          if (isSunday && pSPR > SUNDAY_SPR_MAX) {
+            pSPR = SUNDAY_SPR_MAX;
+            pDev = remainder - pSPR;
+          }
         }
 
         let varianceStr = "-";
