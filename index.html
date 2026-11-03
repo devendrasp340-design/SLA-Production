@@ -129,7 +129,7 @@
           <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-sm">
             <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Req. Run Rate</span>
             <div class="text-2xl font-black text-cyan-400" id="cardRequiredRunRate">0</div>
-            <span class="text-[10px] text-slate-400 font-mono mt-1 block">pieces / working day (Sun max 1,000)</span>
+            <span class="text-[10px] text-slate-400 font-mono mt-1 block">pieces / weekday</span>
           </div>
         </div>
 
@@ -150,7 +150,7 @@
                 Daily Production Calendar
                 <span class="text-xs font-normal text-slate-400 hidden sm:inline">(Auto-rebalances deficit/surplus daily)</span>
               </h2>
-              <p class="text-[11px] text-slate-500">Dileep up to 1,750 &bull; Sunday: total max 1,000, SPR max 150 &bull; Balance split Dev & SPR &bull; Final day = 0 buffer</p>
+              <p class="text-[11px] text-slate-500">Weekdays: Dileep up to 1,750 &bull; Sunday: Dileep optional (max 1,000), Dev max 1,000, SPR max 200 &bull; Final day = 0 buffer</p>
             </div>
             <div class="flex items-center gap-2">
               <button onclick="exportCSV()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
@@ -351,8 +351,13 @@
     const TARGET_MONTHLY = 82000;
     const RATE_PER_UNIT = 1.30;
     const TOTAL_EXPENSES = 106500;
-    const SUNDAY_MAX_TOTAL = 1000;   // max pieces planned on any Sunday
-    const SUNDAY_SPR_MAX = 150;      // max SPR pieces on any Sunday
+
+    // Sunday limits (per person)
+    const SUNDAY_DILEEP_MAX = 1000;  // optional on Sundays
+    const SUNDAY_DEV_MAX = 1000;
+    const SUNDAY_SPR_MAX = 200;
+    const NO_LIMIT = 1000000000;
+
     const PIN_SALT = "SLA_2026_SECURE_SALT";
     // Salted SHA-256 of PIN 9043
     const DEFAULT_HASH = "e0c745c6fc1a5563933194d9c49bd38becb33cf39794a532d9e9920e57e56a65";
@@ -553,6 +558,12 @@
       if (fbDb && !isRemoteUpdate) syncToCloudDebounced();
     }
 
+    // Max pieces one Sunday can produce, depending on whether Dileep works
+    function sundayCapacity(condition) {
+      const dileep = (condition === 'normal') ? SUNDAY_DILEEP_MAX : 0;
+      return dileep + SUNDAY_DEV_MAX + SUNDAY_SPR_MAX;
+    }
+
     // --- ALLOCATION ENGINE ---
     function renderProductionTable() {
       const totalDays = getDaysInMonth(currentMonth);
@@ -560,47 +571,58 @@
       const tbody = document.getElementById('productionTableBody');
       tbody.innerHTML = '';
 
+      // 0. Make sure every day has a state (Sunday default = Dileep off)
+      for (let d = 1; d <= totalDays; d++) {
+        const isSun = (new Date(year, month - 1, d).getDay() === 0);
+        if (!monthData.days[d]) {
+          monthData.days[d] = { condition: isSun ? 'leave' : 'normal', actual: null };
+        } else if (isSun && monthData.days[d].condition === 'half') {
+          monthData.days[d].condition = 'leave'; // old Sunday default
+        }
+      }
+
       // 1. Total already produced
       let totalCompleted = 0;
       for (let d = 1; d <= totalDays; d++) {
         const row = monthData.days[d];
-        if (row && row.actual !== null && row.actual !== undefined && row.actual !== '') {
+        if (row.actual !== null && row.actual !== undefined && row.actual !== '') {
           totalCompleted += Number(row.actual);
         }
       }
       const balanceRemaining = Math.max(0, TARGET_MONTHLY - totalCompleted);
 
-      // 2. Count open (future) working days: weekdays vs Sundays
-      let openWeekdays = 0;
-      let openSundays = 0;
+      // 2. Open (future) working days with their capacity
+      const openDays = [];
       for (let d = 1; d <= totalDays; d++) {
-        const isBufferDay = (d === totalDays);
-        const row = monthData.days[d] || { condition: 'normal', actual: null };
+        const row = monthData.days[d];
         const hasActual = (row.actual !== null && row.actual !== undefined && row.actual !== '');
+        const isBufferDay = (d === totalDays);
         if (hasActual || isBufferDay || row.condition === 'power') continue;
         const isSun = (new Date(year, month - 1, d).getDay() === 0);
-        if (isSun) openSundays++; else openWeekdays++;
+        openDays.push({ d: d, isSun: isSun, cap: isSun ? sundayCapacity(row.condition) : NO_LIMIT });
       }
-      const openTotal = openWeekdays + openSundays;
 
-      // 3. Weekday target with Sunday capped at SUNDAY_MAX_TOTAL
+      // 3. Spread balance: small-capacity days (Sundays) first, rest goes to weekdays
+      const plans = {};
+      let remaining = balanceRemaining;
+      const sorted = openDays.slice().sort((a, b) => a.cap - b.cap);
+      sorted.forEach((o, i) => {
+        const left = sorted.length - i;
+        const share = Math.ceil(remaining / left);
+        const p = Math.min(o.cap, share);
+        plans[o.d] = p;
+        remaining = Math.max(0, remaining - p);
+      });
+
       let weekdayTarget = 0;
-      if (openTotal > 0) {
-        const evenTarget = Math.ceil(balanceRemaining / openTotal);
-        if (evenTarget <= SUNDAY_MAX_TOTAL || openWeekdays === 0) {
-          weekdayTarget = evenTarget;
-        } else {
-          weekdayTarget = Math.ceil((balanceRemaining - SUNDAY_MAX_TOTAL * openSundays) / openWeekdays);
-        }
-      }
-      const sundayTarget = Math.min(SUNDAY_MAX_TOTAL, weekdayTarget);
+      openDays.forEach(o => { if (!o.isSun && plans[o.d] > weekdayTarget) weekdayTarget = plans[o.d]; });
 
       // Update Top Summary Cards
       document.getElementById('cardMonthlyTarget').innerText = TARGET_MONTHLY.toLocaleString('en-IN');
       document.getElementById('cardCompleted').innerText = totalCompleted.toLocaleString('en-IN');
       document.getElementById('cardCompletionPct').innerText = ((totalCompleted / TARGET_MONTHLY) * 100).toFixed(1) + '% completed';
       document.getElementById('cardBalance').innerText = balanceRemaining.toLocaleString('en-IN');
-      document.getElementById('cardDaysRemaining').innerText = openTotal + ' active days left';
+      document.getElementById('cardDaysRemaining').innerText = openDays.length + ' active days left';
       document.getElementById('cardRequiredRunRate').innerText = weekdayTarget.toLocaleString('en-IN');
 
       // Expense Breakeven Recovery Bar
@@ -616,34 +638,39 @@
         const isSunday = (dateObj.getDay() === 0);
         const isBufferDay = (d === totalDays);
 
-        if (!monthData.days[d]) {
-          monthData.days[d] = { condition: isSunday ? 'half' : 'normal', actual: null };
-        }
-
         const dayState = monthData.days[d];
         const hasActual = (dayState.actual !== null && dayState.actual !== undefined && dayState.actual !== '');
 
         let pDileep = 0, pDev = 0, pSPR = 0, pTotal = 0;
 
         if (!(isBufferDay || dayState.condition === 'power')) {
-          pTotal = isSunday ? sundayTarget : weekdayTarget;
+          if (plans[d] !== undefined) {
+            pTotal = plans[d];
+          } else {
+            // day already has an actual: compare against the current target
+            pTotal = isSunday ? Math.min(sundayCapacity(dayState.condition), weekdayTarget) : weekdayTarget;
+          }
 
-          // Dileep first (cap 1750; 900 on half day; 0 on leave)
-          let dileepCap = 1750;
-          if (dayState.condition === 'half') dileepCap = 900;
-          if (dayState.condition === 'leave') dileepCap = 0;
-
-          pDileep = Math.min(dileepCap, pTotal);
-          const remainder = Math.max(0, pTotal - pDileep);
-
-          // Split remainder between Dev and SPR
-          pDev = Math.round(remainder * 0.82);
-          pSPR = remainder - pDev;
-
-          // Sunday: SPR is capped at 150, Dev takes the rest
-          if (isSunday && pSPR > SUNDAY_SPR_MAX) {
-            pSPR = SUNDAY_SPR_MAX;
+          if (isSunday) {
+            // Sunday: Dileep optional (max 1000), Dev max 1000, SPR max 200
+            const dileepCap = (dayState.condition === 'normal') ? SUNDAY_DILEEP_MAX : 0;
+            pDileep = Math.min(dileepCap, pTotal);
+            const remainder = Math.max(0, pTotal - pDileep);
+            pSPR = Math.min(SUNDAY_SPR_MAX, Math.round(remainder * 0.18));
             pDev = remainder - pSPR;
+            if (pDev > SUNDAY_DEV_MAX) {
+              pDev = SUNDAY_DEV_MAX;
+              pSPR = Math.min(SUNDAY_SPR_MAX, remainder - pDev);
+            }
+          } else {
+            // Weekday: Dileep first (cap 1750; 900 on half day; 0 on leave)
+            let dileepCap = 1750;
+            if (dayState.condition === 'half') dileepCap = 900;
+            if (dayState.condition === 'leave') dileepCap = 0;
+            pDileep = Math.min(dileepCap, pTotal);
+            const remainder = Math.max(0, pTotal - pDileep);
+            pDev = Math.round(remainder * 0.82);
+            pSPR = remainder - pDev;
           }
         }
 
@@ -663,6 +690,15 @@
           }
         }
 
+        const conditionOptions = isSunday
+          ? `<option value="leave" ${dayState.condition === 'leave' ? 'selected' : ''}>Dileep Off (Sunday)</option>
+             <option value="normal" ${dayState.condition === 'normal' ? 'selected' : ''}>Dileep Works (max 1000)</option>
+             <option value="power" ${dayState.condition === 'power' ? 'selected' : ''}>Power Cut (0)</option>`
+          : `<option value="normal" ${dayState.condition === 'normal' ? 'selected' : ''}>Full Day</option>
+             <option value="half" ${dayState.condition === 'half' ? 'selected' : ''}>Dileep Half (900)</option>
+             <option value="leave" ${dayState.condition === 'leave' ? 'selected' : ''}>Dileep Leave (0)</option>
+             <option value="power" ${dayState.condition === 'power' ? 'selected' : ''}>Power Cut (0)</option>`;
+
         const tr = document.createElement('tr');
         tr.className = 'border-b border-slate-800/60 hover:bg-slate-800/30 transition ' + (isBufferDay ? 'bg-amber-500/5' : '');
 
@@ -674,10 +710,7 @@
           </td>
           <td class="py-3 px-3">
             <select onchange="updateCondition(${d}, this.value)" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-emerald-500 ${isBufferDay ? 'opacity-40 pointer-events-none' : ''}">
-              <option value="normal" ${dayState.condition === 'normal' ? 'selected' : ''}>Full Day</option>
-              <option value="half" ${dayState.condition === 'half' ? 'selected' : ''}>Dileep Half (900)</option>
-              <option value="leave" ${dayState.condition === 'leave' ? 'selected' : ''}>Dileep Leave (0)</option>
-              <option value="power" ${dayState.condition === 'power' ? 'selected' : ''}>Power Cut (0)</option>
+              ${conditionOptions}
             </select>
           </td>
           <td class="py-3 px-3 text-right font-mono text-cyan-400">${pDileep.toLocaleString('en-IN')}</td>
